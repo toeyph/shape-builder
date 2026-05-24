@@ -14,6 +14,9 @@ type Guide = { axis: "x" | "y"; value: number; center: boolean };
 type SnapResult = { x: number; y: number; guides: Guide[] };
 type SelHandle = { idx: number; which: "in" | "out" } | null;
 type CodeMode = "svg" | "css" | "mask" | "tailwind";
+type FillType = "solid" | "linear" | "radial" | "metallic";
+type GradStop = { color: string; pos: number };
+type GradParams = { fillType: FillType; stops: GradStop[]; gradAngle: number };
 type PanelTab = "canvas" | "props" | "code";
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -120,15 +123,58 @@ const PRESETS: { name: string; pts: [number, number][] }[] = [
   { name: "Wave",     pts: [[60,220],[110,160],[160,220],[210,160],[260,220],[310,160],[340,200],[340,300],[60,300]] },
 ];
 
+// ─── Metallic presets ────────────────────────────────────────────
+const METALLIC_PRESETS: { name: string; stops: GradStop[] }[] = [
+  { name: "Silver", stops: [{color:"#e8e8e8",pos:0},{color:"#a0a0a0",pos:35},{color:"#f5f5f5",pos:50},{color:"#989898",pos:65},{color:"#e0e0e0",pos:100}] },
+  { name: "Gold",   stops: [{color:"#c8960c",pos:0},{color:"#ffd700",pos:35},{color:"#ffe88a",pos:50},{color:"#daa520",pos:65},{color:"#b8860b",pos:100}] },
+  { name: "Copper", stops: [{color:"#a05020",pos:0},{color:"#cd7f32",pos:35},{color:"#e8a060",pos:50},{color:"#b8722c",pos:65},{color:"#8b4513",pos:100}] },
+  { name: "Chrome", stops: [{color:"#f0f0f0",pos:0},{color:"#c0c0c0",pos:20},{color:"#ffffff",pos:40},{color:"#808080",pos:60},{color:"#d8d8d8",pos:80},{color:"#f0f0f0",pos:100}] },
+];
+
 // ─── Code generators ─────────────────────────────────────────────
 const genClip = (pts: Point[]) => "polygon(" + pts.map(p => `${pct(p.x, W)} ${pct(p.y, H)}`).join(", ") + ")";
-const genSVG = (pts: Point[], fill: string, op: number, sw: number, sc: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">\n  <path d="${buildPath(pts)}" fill="${op < 1 ? hexRgba(fill, op) : fill}"${sw > 0 ? ` stroke="${sc}" stroke-width="${sw}"` : ""}/>\n</svg>`;
-const genCSS = (pts: Point[], fill: string, op: number, sw: number, sc: string) =>
-  `.my-shape {\n  clip-path: ${genClip(pts)};\n  background: ${op < 1 ? hexRgba(fill, op) : fill};${sw > 0 ? `\n  outline: ${sw}px solid ${sc};` : ""}\n}`;
-const genMask = (pts: Point[], fill: string, op: number) =>
-  `.my-shape {\n  width:400px; height:400px;\n  background:${op < 1 ? hexRgba(fill, op) : fill};\n  mask:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'><path d='${buildPath(pts)}'/></svg>") center/cover;\n}`;
-const genTW = (pts: Point[], fill: string) => `className="[clip-path:'${genClip(pts)}'] w-[400px] h-[400px] bg-[${fill}]"`;
+
+const gradCSSValue = (stops: GradStop[], fillType: FillType, angle: number): string => {
+  const s = stops.map(st => `${st.color} ${st.pos}%`).join(", ");
+  if (fillType === "radial") return `radial-gradient(circle at center, ${s})`;
+  return `linear-gradient(${fillType === "metallic" ? 135 : angle}deg, ${s})`;
+};
+
+const genSVG = (pts: Point[], fill: string, op: number, sw: number, sc: string, g?: GradParams) => {
+  let fillStr = op < 1 ? hexRgba(fill, op) : fill, defs = "", opAttr = "";
+  if (g) {
+    fillStr = "url(#g)";
+    if (op < 1) opAttr = ` fill-opacity="${op.toFixed(2)}"`;
+    const svgStops = g.stops.map(s => `<stop offset="${s.pos}%" stop-color="${s.color}"/>`).join("\n      ");
+    if (g.fillType === "linear")
+      defs = `  <defs>\n    <linearGradient id="g" gradientUnits="objectBoundingBox" gradientTransform="rotate(${g.gradAngle},0.5,0.5)" x1="0" y1="0.5" x2="1" y2="0.5">\n      ${svgStops}\n    </linearGradient>\n  </defs>\n`;
+    else if (g.fillType === "radial")
+      defs = `  <defs>\n    <radialGradient id="g" cx="50%" cy="50%" r="50%">\n      ${svgStops}\n    </radialGradient>\n  </defs>\n`;
+    else
+      defs = `  <defs>\n    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">\n      ${svgStops}\n    </linearGradient>\n  </defs>\n`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">\n${defs}  <path d="${buildPath(pts)}" fill="${fillStr}"${opAttr}${sw > 0 ? ` stroke="${sc}" stroke-width="${sw}"` : ""}/>\n</svg>`;
+};
+
+const genCSS = (pts: Point[], fill: string, op: number, sw: number, sc: string, g?: GradParams) => {
+  const bg = g ? gradCSSValue(g.stops, g.fillType, g.gradAngle) : (op < 1 ? hexRgba(fill, op) : fill);
+  const opProp = g && op < 1 ? `\n  opacity: ${op.toFixed(2)};` : "";
+  return `.my-shape {\n  clip-path: ${genClip(pts)};\n  background: ${bg};${opProp}${sw > 0 ? `\n  outline: ${sw}px solid ${sc};` : ""}\n}`;
+};
+
+const genMask = (pts: Point[], fill: string, op: number, g?: GradParams) => {
+  const bg = g ? gradCSSValue(g.stops, g.fillType, g.gradAngle) : (op < 1 ? hexRgba(fill, op) : fill);
+  const opProp = g && op < 1 ? `\n  opacity: ${op.toFixed(2)};` : "";
+  return `.my-shape {\n  width:400px; height:400px;\n  background:${bg};${opProp}\n  mask:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'><path d='${buildPath(pts)}'/></svg>") center/cover;\n}`;
+};
+
+const genTW = (pts: Point[], fill: string, g?: GradParams) => {
+  if (g) {
+    const css = gradCSSValue(g.stops, g.fillType, g.gradAngle).replace(/\s/g, "_");
+    return `className="[clip-path:'${genClip(pts)}'] w-[400px] h-[400px] [background:${css}]"`;
+  }
+  return `className="[clip-path:'${genClip(pts)}'] w-[400px] h-[400px] bg-[${fill}]"`;
+};
 
 // ─── Snap engine ─────────────────────────────────────────────────
 function computeSnap(rawX: number, rawY: number, dragIdx: number, allPts: Point[], snapOn: boolean): SnapResult {
@@ -300,6 +346,12 @@ export default function ShapeBuilder() {
   const [snapOn, setSnapOn]     = useState(true);
   const [fill, setFill]         = useState("#0071e3");
   const [fillOp, setFillOp]     = useState(100);
+  const [fillType, setFillType] = useState<FillType>("solid");
+  const [gradStops, setGradStops] = useState<GradStop[]>([
+    { color: "#0071e3", pos: 0 },
+    { color: "#ff9500", pos: 100 },
+  ]);
+  const [gradAngle, setGradAngle] = useState(135);
   const [sw, setSw]             = useState(0);
   const [sc, setSc]             = useState("#000000");
   const [shBlur, setShBlur]     = useState(0);
@@ -540,10 +592,11 @@ export default function ShapeBuilder() {
   };
 
   const rawCode = () => {
-    if (codeMode === "svg")      return genSVG(pts, fill, op, sw, sc);
-    if (codeMode === "css")      return genCSS(pts, fill, op, sw, sc);
-    if (codeMode === "mask")     return genMask(pts, fill, op);
-    return genTW(pts, fill);
+    const g: GradParams | undefined = fillType !== "solid" ? { fillType, stops: gradStops, gradAngle } : undefined;
+    if (codeMode === "svg")      return genSVG(pts, fill, op, sw, sc, g);
+    if (codeMode === "css")      return genCSS(pts, fill, op, sw, sc, g);
+    if (codeMode === "mask")     return genMask(pts, fill, op, g);
+    return genTW(pts, fill, g);
   };
 
   const doCopy = () => {
@@ -553,7 +606,7 @@ export default function ShapeBuilder() {
   };
 
   const pathD = buildPath(pts);
-  const fillV = op < 1 ? hexRgba(fill, op) : fill;
+  const pathFill = fillType === "solid" ? fill : "url(#sbGrad)";
   const shFilter = (shBlur > 0 || shY !== 0) ? `drop-shadow(0 ${shY}px ${shBlur}px rgba(0,0,0,${(shOp / 100).toFixed(2)}))` : "none";
   const selPt = sel >= 0 && sel < pts.length ? pts[sel] : null;
 
@@ -567,7 +620,24 @@ export default function ShapeBuilder() {
         onClick={addClick}
         style={{ cursor: "crosshair", position: "relative", zIndex: 1, filter: shFilter !== "none" ? shFilter : undefined, boxShadow: "0 6px 24px rgba(0,0,0,.12),0 2px 6px rgba(0,0,0,.08)", touchAction: "none" }}
       >
-        <path id="live-path" d={pathD} fill={fillV} stroke={sw > 0 ? sc : "none"} strokeWidth={sw} />
+        <defs>
+          {fillType === "linear" && (
+            <linearGradient id="sbGrad" gradientUnits="objectBoundingBox" gradientTransform={`rotate(${gradAngle},0.5,0.5)`} x1="0" y1="0.5" x2="1" y2="0.5">
+              {gradStops.map((s, i) => <stop key={i} offset={`${s.pos}%`} stopColor={s.color} />)}
+            </linearGradient>
+          )}
+          {fillType === "radial" && (
+            <radialGradient id="sbGrad" cx="50%" cy="50%" r="50%">
+              {gradStops.map((s, i) => <stop key={i} offset={`${s.pos}%`} stopColor={s.color} />)}
+            </radialGradient>
+          )}
+          {fillType === "metallic" && (
+            <linearGradient id="sbGrad" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+              {gradStops.map((s, i) => <stop key={i} offset={`${s.pos}%`} stopColor={s.color} />)}
+            </linearGradient>
+          )}
+        </defs>
+        <path id="live-path" d={pathD} fill={pathFill} fillOpacity={op} stroke={sw > 0 ? sc : "none"} strokeWidth={sw} />
 
         {snapOn && (
           <g style={{ pointerEvents: "none" }}>
@@ -670,9 +740,82 @@ export default function ShapeBuilder() {
 
       <Sec>
         <SecTitle>Fill</SecTitle>
-        <ColorRow color={fill} onChange={setFill} />
+
+        {/* Type tabs */}
+        <div className="flex gap-[4px] mb-[10px] flex-wrap">
+          {(["solid","linear","radial","metallic"] as FillType[]).map(t => (
+            <button key={t} onClick={() => setFillType(t)}
+              className={cn("h-[22px] px-[8px] rounded-full text-[10px] font-medium cursor-pointer border transition-all duration-[120ms]",
+                fillType === t ? "bg-sb-blue text-white border-sb-blue" : "bg-transparent text-sb-mid border-black/[.15]")}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {fillType === "solid" && <ColorRow color={fill} onChange={setFill} />}
+
+        {fillType !== "solid" && (<>
+          {/* Metallic quick-start presets */}
+          {fillType === "metallic" && (
+            <div className="grid grid-cols-4 gap-[4px] mb-[10px]">
+              {METALLIC_PRESETS.map((m, i) => (
+                <button key={i} title={m.name}
+                  onClick={() => setGradStops(m.stops.map(s => ({ ...s })))}
+                  className="h-[22px] rounded-md cursor-pointer text-[8px] font-bold text-white border border-black/[.12] transition-all hover:scale-105"
+                  style={{ background: gradCSSValue(m.stops, "metallic", 135), textShadow: "0 1px 2px rgba(0,0,0,.55)" }}>
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Live gradient preview */}
+          <div className="h-[26px] rounded-[8px] mb-[10px] border border-black/[.08]"
+            style={{ background: gradCSSValue(gradStops, fillType, gradAngle) }} />
+
+          {/* Stop rows */}
+          {gradStops.map((stop, i) => (
+            <div key={i} className="flex items-center gap-[5px] mb-[7px]">
+              <div className="w-[22px] h-[22px] rounded-[5px] border-[1.5px] border-black/[.15] overflow-hidden shrink-0">
+                <input type="color" value={stop.color}
+                  onChange={e => setGradStops(ss => ss.map((s, j) => j === i ? { ...s, color: e.target.value } : s))}
+                  className="w-full h-full border-none cursor-pointer" />
+              </div>
+              <input type="range" min={0} max={100} value={stop.pos}
+                onChange={e => setGradStops(ss => ss.map((s, j) => j === i ? { ...s, pos: +e.target.value } : s))}
+                className="flex-1 cursor-ew-resize" />
+              <span className="text-[9px] font-mono text-sb-muted w-[26px] text-right shrink-0">{stop.pos}%</span>
+              {gradStops.length > 2 && (
+                <button onClick={() => setGradStops(ss => ss.filter((_, j) => j !== i))}
+                  className="w-[14px] h-[14px] flex items-center justify-center text-sb-muted text-sm cursor-pointer border-none bg-transparent shrink-0 hover:text-sb-red leading-none">×</button>
+              )}
+            </div>
+          ))}
+
+          {gradStops.length < 6 && (
+            <button onClick={() => {
+              const sorted = [...gradStops].sort((a, b) => a.pos - b.pos);
+              let maxGap = -1, insertAt = 0;
+              for (let k = 0; k < sorted.length - 1; k++) {
+                const gap = sorted[k+1].pos - sorted[k].pos;
+                if (gap > maxGap) { maxGap = gap; insertAt = k; }
+              }
+              const bef = sorted[insertAt], aft = sorted[insertAt + 1];
+              setGradStops(ss => [...ss, { color: bef.color, pos: Math.round((bef.pos + aft.pos) / 2) }]);
+            }}
+              className="text-[10px] text-sb-blue cursor-pointer bg-transparent border-none mb-[6px] hover:underline w-full text-left">
+              + Add stop
+            </button>
+          )}
+
+          {(fillType === "linear" || fillType === "metallic") && (
+            <Slider label="Angle" value={gradAngle} min={0} max={360} unit="°"
+              onChange={setGradAngle} onCommit={setGradAngle} />
+          )}
+        </>)}
+
         <Slider label="Opacity" value={fillOp} min={0} max={100} unit="%"
-          onChange={v => { setFillOp(v); const o = v/100; const el = svgRef.current?.querySelector("#live-path"); if(el) el.setAttribute("fill", o < 1 ? hexRgba(fill, o) : fill); }}
+          onChange={v => { setFillOp(v); const el = svgRef.current?.querySelector<SVGPathElement>("#live-path"); if(el) el.setAttribute("fill-opacity", String(v/100)); }}
           onCommit={setFillOp} />
       </Sec>
 
@@ -808,15 +951,15 @@ export default function ShapeBuilder() {
       {/* Layout */}
       {!isMobile ? (
         <div className={cn("grid flex-1 min-h-0", isTablet ? "grid-cols-[220px_1fr]" : "grid-cols-[220px_1fr_288px]")}>
-          <div className="bg-white border-r border-black/[.07] flex flex-col overflow-hidden"><PropsPanel /></div>
-          <Canvas />
-          {!isTablet && <div className="bg-white border-l border-black/[.07] flex flex-col overflow-hidden"><CodePanel /></div>}
+          <div className="bg-white border-r border-black/[.07] flex flex-col overflow-hidden">{PropsPanel()}</div>
+          {Canvas()}
+          {!isTablet && <div className="bg-white border-l border-black/[.07] flex flex-col overflow-hidden">{CodePanel()}</div>}
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-h-0">
-          {panel === "canvas" && <div className="flex-1 flex flex-col"><Canvas /></div>}
-          {panel === "props"  && <div className="flex-1 bg-white flex flex-col overflow-hidden"><PropsPanel /></div>}
-          {panel === "code"   && <div className="flex-1 bg-white flex flex-col overflow-hidden"><CodePanel /></div>}
+          {panel === "canvas" && <div className="flex-1 flex flex-col">{Canvas()}</div>}
+          {panel === "props"  && <div className="flex-1 bg-white flex flex-col overflow-hidden">{PropsPanel()}</div>}
+          {panel === "code"   && <div className="flex-1 bg-white flex flex-col overflow-hidden">{CodePanel()}</div>}
           <div className="h-14 bg-white/[.92] backdrop-blur-xl border-t border-black/[.07] flex shrink-0">
             {TABS.map(t => (
               <button key={t.id} onClick={() => setPanel(t.id)}
