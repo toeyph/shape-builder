@@ -13,7 +13,7 @@ type Point = {
 type Guide = { axis: "x" | "y"; value: number; center: boolean };
 type SnapResult = { x: number; y: number; guides: Guide[] };
 type SelHandle = { idx: number; which: "in" | "out" } | null;
-type CodeMode = "svg" | "css" | "mask" | "tailwind";
+type CodeMode = "svg" | "css" | "tailwind";
 type FillType = "solid" | "linear" | "radial" | "metallic";
 type GradStop = { color: string; pos: number };
 type GradParams = { fillType: FillType; stops: GradStop[]; gradAngle: number };
@@ -140,7 +140,7 @@ const gradCSSValue = (stops: GradStop[], fillType: FillType, angle: number): str
   return `linear-gradient(${fillType === "metallic" ? 135 : angle}deg, ${s})`;
 };
 
-const genSVG = (pts: Point[], fill: string, op: number, sw: number, sc: string, g?: GradParams) => {
+const genSVG = (pts: Point[], fill: string, op: number, sw: number, sc: string, g?: GradParams, outW = 400, outH = 400) => {
   let fillStr = op < 1 ? hexRgba(fill, op) : fill, defs = "", opAttr = "";
   if (g) {
     fillStr = "url(#g)";
@@ -153,28 +153,24 @@ const genSVG = (pts: Point[], fill: string, op: number, sw: number, sc: string, 
     else
       defs = `  <defs>\n    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">\n      ${svgStops}\n    </linearGradient>\n  </defs>\n`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">\n${defs}  <path d="${buildPath(pts)}" fill="${fillStr}"${opAttr}${sw > 0 ? ` stroke="${sc}" stroke-width="${sw}"` : ""}/>\n</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 400 400">\n${defs}  <path d="${buildPath(pts)}" fill="${fillStr}"${opAttr}${sw > 0 ? ` stroke="${sc}" stroke-width="${sw}"` : ""}/>\n</svg>`;
 };
 
-const genCSS = (pts: Point[], fill: string, op: number, sw: number, sc: string, g?: GradParams) => {
+const genCSS = (pts: Point[], fill: string, op: number, sw: number, sc: string, g?: GradParams, outW = 400, outH = 400) => {
   const bg = g ? gradCSSValue(g.stops, g.fillType, g.gradAngle) : (op < 1 ? hexRgba(fill, op) : fill);
   const opProp = g && op < 1 ? `\n  opacity: ${op.toFixed(2)};` : "";
-  return `.my-shape {\n  clip-path: ${genClip(pts)};\n  background: ${bg};${opProp}${sw > 0 ? `\n  outline: ${sw}px solid ${sc};` : ""}\n}`;
+  return `.my-shape {\n  width: ${outW}px;\n  height: ${outH}px;\n  clip-path: ${genClip(pts)};\n  background: ${bg};${opProp}${sw > 0 ? `\n  outline: ${sw}px solid ${sc};` : ""}\n}`;
 };
 
-const genMask = (pts: Point[], fill: string, op: number, g?: GradParams) => {
-  const bg = g ? gradCSSValue(g.stops, g.fillType, g.gradAngle) : (op < 1 ? hexRgba(fill, op) : fill);
-  const opProp = g && op < 1 ? `\n  opacity: ${op.toFixed(2)};` : "";
-  return `.my-shape {\n  width:400px; height:400px;\n  background:${bg};${opProp}\n  mask:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'><path d='${buildPath(pts)}'/></svg>") center/cover;\n}`;
-};
-
-const genTW = (pts: Point[], fill: string, g?: GradParams) => {
+const genTW = (pts: Point[], fill: string, g?: GradParams, outW = 400, outH = 400) => {
+  const clip = genClip(pts).replace(/\s/g, "_");
   if (g) {
     const css = gradCSSValue(g.stops, g.fillType, g.gradAngle).replace(/\s/g, "_");
-    return `className="[clip-path:'${genClip(pts)}'] w-[400px] h-[400px] [background:${css}]"`;
+    return `<div\n  className="[clip-path:${clip}]\n    w-[${outW}px] h-[${outH}px]\n    [background:${css}]"\n/>`;
   }
-  return `className="[clip-path:'${genClip(pts)}'] w-[400px] h-[400px] bg-[${fill}]"`;
+  return `<div\n  className="[clip-path:${clip}]\n    w-[${outW}px] h-[${outH}px]\n    bg-[${fill}]"\n/>`;
 };
+
 
 // ─── Snap engine ─────────────────────────────────────────────────
 function computeSnap(rawX: number, rawY: number, dragIdx: number, allPts: Point[], snapOn: boolean): SnapResult {
@@ -188,7 +184,7 @@ function computeSnap(rawX: number, rawY: number, dragIdx: number, allPts: Point[
   let bdx = SNAP_THR + 1, sx: number | null = null;
   for (const cx of cxs) { const d = Math.abs(rawX - cx); if (d < bdx) { bdx = d; sx = cx; } }
   if (sx !== null && bdx <= SNAP_THR) {
-    x = sx; guides.push({ axis: "x", value: sx, center: sx === W / 2 || sx === H / 2 });
+    x = sx; guides.push({ axis: "x", value: sx, center: sx === W / 2 });
   } else {
     const gx = Math.round(rawX / GRID) * GRID;
     if (Math.abs(rawX - gx) < SNAP_THR / 2) x = gx;
@@ -221,9 +217,9 @@ const Btn = ({ onClick, children, active, disabled, title, className }: BtnProps
     disabled={disabled}
     title={title}
     className={cn(
-      "h-[30px] px-[11px] rounded-full border border-black/[.12] text-xs font-medium",
+      "h-[30px] px-[11px] rounded-full border border-white/[.12] text-xs font-medium",
       "inline-flex items-center gap-[5px] whitespace-nowrap transition-all duration-[140ms]",
-      active ? "bg-sb-blue text-white" : "bg-white text-sb-dark",
+      active ? "bg-sb-blue text-white shadow-[0_0_14px_rgba(129,140,248,.5)]" : "bg-white/[.06] text-sb-mid",
       disabled ? "opacity-50 cursor-not-allowed text-sb-muted" : "cursor-pointer",
       className,
     )}
@@ -234,9 +230,9 @@ const Btn = ({ onClick, children, active, disabled, title, className }: BtnProps
 
 interface SliderProps {
   label: string; value: number; min: number; max: number;
-  step?: number; onChange: (v: number) => void; onCommit?: (v: number) => void; unit?: string;
+  step?: number; onChange: (v: number) => void; onCommit?: (v: number) => void; onStart?: () => void; unit?: string;
 }
-const Slider = ({ label, value, min, max, step = 1, onChange, onCommit, unit = "" }: SliderProps) => {
+const Slider = ({ label, value, min, max, step = 1, onChange, onCommit, onStart, unit = "" }: SliderProps) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value));
 
@@ -261,7 +257,7 @@ const Slider = ({ label, value, min, max, step = 1, onChange, onCommit, unit = "
             onChange={e => setDraft(e.target.value)}
             onBlur={() => commit()}
             onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setEditing(false); setDraft(String(value)); } }}
-            className="w-[50px] text-right font-mono text-[11px] text-sb-blue border-[1.5px] border-sb-blue rounded-[5px] px-[5px] py-px outline-none bg-white"
+            className="w-[50px] text-right font-mono text-[11px] text-sb-blue border-[1.5px] border-sb-blue rounded-[5px] px-[5px] py-px outline-none bg-[#1a1a2e]"
             autoFocus onFocus={e => e.target.select()}
           />
         ) : (
@@ -276,6 +272,7 @@ const Slider = ({ label, value, min, max, step = 1, onChange, onCommit, unit = "
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
+        onPointerDown={() => onStart?.()}
         onChange={e => { onChange(+e.target.value); setDraft(String(+e.target.value)); }}
         onPointerUp={e => onCommit && onCommit(+(e.target as HTMLInputElement).value)}
         className="w-full cursor-ew-resize"
@@ -286,7 +283,7 @@ const Slider = ({ label, value, min, max, step = 1, onChange, onCommit, unit = "
 
 const ColorRow = ({ color, onChange }: { color: string; onChange: (c: string) => void }) => (
   <div className="flex gap-2 items-center mb-[10px]">
-    <div className="w-7 h-7 rounded-md border-[1.5px] border-black/[.15] overflow-hidden shrink-0">
+    <div className="w-7 h-7 rounded-md border-[1.5px] border-white/[.12] overflow-hidden shrink-0">
       <input type="color" value={color} onChange={e => onChange(e.target.value)} className="w-full h-full border-none cursor-pointer" />
     </div>
     <span className="font-mono text-[11px] text-sb-mid">{color}</span>
@@ -297,8 +294,8 @@ interface SecProps { children: React.ReactNode; noBorder?: boolean; accent?: boo
 const Sec = ({ children, noBorder, accent }: SecProps) => (
   <div className={cn(
     "px-4 py-[14px]",
-    !noBorder && "border-b border-black/[.07]",
-    accent && "border-l-[3px] border-l-sb-orange bg-sb-orange/[.04]",
+    !noBorder && "border-b border-white/[.07]",
+    accent && "border-l-[3px] border-l-sb-orange bg-sb-orange/[.08]",
   )}>
     {children}
   </div>
@@ -306,7 +303,10 @@ const Sec = ({ children, noBorder, accent }: SecProps) => (
 
 const SecTitle = ({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) => (
   <div className="flex items-center justify-between mb-[10px]">
-    <span className="text-[10px] font-semibold tracking-[0.5px] uppercase text-sb-muted">{children}</span>
+    <span className="text-[10px] font-semibold tracking-[0.5px] uppercase text-sb-muted flex items-center gap-[6px]">
+      <span className="inline-block w-[3px] h-[12px] rounded-full shrink-0" style={{ background: "linear-gradient(to bottom, #818cf8, #f472b6)" }} />
+      {children}
+    </span>
     {right}
   </div>
 );
@@ -344,11 +344,11 @@ export default function ShapeBuilder() {
   const [activeP, setActiveP]   = useState(0);
   const [globalR, setGlobalR]   = useState(0);
   const [snapOn, setSnapOn]     = useState(true);
-  const [fill, setFill]         = useState("#0071e3");
+  const [fill, setFill]         = useState("#818cf8");
   const [fillOp, setFillOp]     = useState(100);
   const [fillType, setFillType] = useState<FillType>("solid");
   const [gradStops, setGradStops] = useState<GradStop[]>([
-    { color: "#0071e3", pos: 0 },
+    { color: "#818cf8", pos: 0 },
     { color: "#ff9500", pos: 100 },
   ]);
   const [gradAngle, setGradAngle] = useState(135);
@@ -363,6 +363,13 @@ export default function ShapeBuilder() {
   const [flipV, setFlipV]       = useState(false);
   const [panel, setPanel]       = useState<PanelTab>("canvas");
   const [winW, setWinW]         = useState(0);
+  const [preview, setPreview]   = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceHeldRef = useRef(false);
+  const [ctxMenu, setCtxMenu]   = useState<{ x: number; y: number; idx: number } | null>(null);
+  const [outW, setOutW]         = useState(400);
+  const [outH, setOutH]         = useState(400);
+  const [liveSelR, setLiveSelR] = useState(0);
 
   useEffect(() => {
     setWinW(window.innerWidth);
@@ -394,40 +401,28 @@ export default function ShapeBuilder() {
     return () => ro.disconnect();
   }, [isMobile]);
 
-  useEffect(() => {
-    const fn = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); undoHist(); }
-      if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redoHist(); }
-    };
-    window.addEventListener("keydown", fn);
-    return () => window.removeEventListener("keydown", fn);
-  }, [undoHist, redoHist]);
 
   // ─── Transform helpers ───────────────────────────────────────
   const doFlipH = () => {
+    rotateBaseRef.current = null; rotateOriginRef.current = null; setRotate(0);
     setFlipH(v => !v);
     pushHist(pts.map(p => ({ ...p, x: Math.round(2 * (W / 2) - p.x) })));
   };
   const doFlipV = () => {
+    rotateBaseRef.current = null; rotateOriginRef.current = null; setRotate(0);
     setFlipV(v => !v);
     pushHist(pts.map(p => ({ ...p, y: Math.round(2 * (H / 2) - p.y) })));
   };
-  const applyRotate = (deg: number) => {
-    setRotate(deg);
-    const rad = (deg * Math.PI) / 180, cx = W / 2, cy = H / 2;
-    pushHist(pts.map(p => {
-      const dx = p.x - cx, dy = p.y - cy;
-      return { ...p, x: Math.round(cx + dx * Math.cos(rad) - dy * Math.sin(rad)), y: Math.round(cy + dx * Math.sin(rad) + dy * Math.cos(rad)) };
-    }));
-  };
-
   const applyPreset = (i: number) => {
     setActiveP(i); setCurves(false); setSel(-1); setSelH(null); setGlobalR(0);
+    setFlipH(false); setFlipV(false); setRotate(0);
+    rotateBaseRef.current = null; rotateOriginRef.current = null;
     const raw = PRESETS[i].pts.map(([x, y]) => mkPt(x, y, 0));
     resetHist(raw.map((_, j) => autoH(raw, j)));
   };
 
   const addClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (preview || spaceHeldRef.current) return;
     if ((e.target as Element).closest("[data-h]") || (e.target as Element).closest("[data-e]")) return;
     const rect = svgRef.current!.getBoundingClientRect();
     const rawX = (e.clientX - rect.left) / scaleRef.current;
@@ -445,6 +440,14 @@ export default function ShapeBuilder() {
   const snapOnRef = useRef(snapOn);
   useEffect(() => { snapOnRef.current = snapOn; }, [snapOn]);
   const draggingRef = useRef(false);
+  const rotateOriginRef = useRef<Point[] | null>(null);
+  const rotateBaseRef   = useRef<Point[] | null>(null);
+  const rotateAtStartRef = useRef(0);
+  const rotateStateRef  = useRef(rotate);
+  useEffect(() => { rotateStateRef.current = rotate; }, [rotate]);
+  const selRef = useRef(sel);
+  useEffect(() => { selRef.current = sel; }, [sel]);
+  useEffect(() => { setLiveSelR(selPt?.r || 0); }, [sel, pts]);
 
   const paintLive = useCallback((lp: Point[], guideList: Guide[] = []) => {
     const pathEl    = svgRef.current?.querySelector<SVGPathElement>("#live-path");
@@ -478,7 +481,7 @@ export default function ShapeBuilder() {
 
     guidesEl.innerHTML = "";
     guideList.forEach(g => {
-      const col = g.center ? "#ff3b30" : "#0071e3";
+      const col = g.center ? "#ff3b30" : "#818cf8";
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       if (g.axis === "x") { line.setAttribute("x1", String(g.value)); line.setAttribute("y1", "0"); line.setAttribute("x2", String(g.value)); line.setAttribute("y2", String(H)); }
       else { line.setAttribute("x1", "0"); line.setAttribute("y1", String(g.value)); line.setAttribute("x2", String(W)); line.setAttribute("y2", String(g.value)); }
@@ -503,6 +506,87 @@ export default function ShapeBuilder() {
       } else { guideLabel.style.display = "none"; }
     }
   }, []);
+
+  const startRotate = useCallback(() => {
+    const origin = livePtsRef.current.map(p => ({ ...p }));
+    rotateOriginRef.current = origin;
+    rotateAtStartRef.current = rotateStateRef.current;
+    if (!rotateBaseRef.current) rotateBaseRef.current = origin;
+  }, []);
+
+  const liveRotate = useCallback((deg: number) => {
+    if (!rotateOriginRef.current) {
+      const origin = livePtsRef.current.map(p => ({ ...p }));
+      rotateOriginRef.current = origin;
+      rotateAtStartRef.current = rotateStateRef.current;
+      if (!rotateBaseRef.current) rotateBaseRef.current = origin;
+    }
+    setRotate(deg);
+    const delta = deg - rotateAtStartRef.current;
+    const rad = (delta * Math.PI) / 180, cx = W / 2, cy = H / 2;
+    const rotated = rotateOriginRef.current.map(p => {
+      const dx = p.x - cx, dy = p.y - cy;
+      return { ...p, x: Math.round(cx + dx * Math.cos(rad) - dy * Math.sin(rad)), y: Math.round(cy + dx * Math.sin(rad) + dy * Math.cos(rad)) };
+    });
+    livePtsRef.current = rotated;
+    paintLive(rotated);
+  }, [paintLive]);
+
+  const commitRotate = useCallback((deg: number) => {
+    if (!rotateOriginRef.current) return;
+    const delta = deg - rotateAtStartRef.current;
+    const rad = (delta * Math.PI) / 180, cx = W / 2, cy = H / 2;
+    const rotated = rotateOriginRef.current.map(p => {
+      const dx = p.x - cx, dy = p.y - cy;
+      return { ...p, x: Math.round(cx + dx * Math.cos(rad) - dy * Math.sin(rad)), y: Math.round(cy + dx * Math.sin(rad) + dy * Math.cos(rad)) };
+    });
+    if (delta !== 0) pushHist(rotated);
+    rotateOriginRef.current = null;
+  }, [pushHist]);
+
+  useEffect(() => {
+    let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+    const down = (e: KeyboardEvent) => {
+      const inInput = !!(e.target as HTMLElement).closest("input,textarea");
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); undoHist(); }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redoHist(); }
+      if (e.code === "Space" && !inInput) { e.preventDefault(); spaceHeldRef.current = true; setSpaceHeld(true); }
+      if (e.key === "Escape") setCtxMenu(null);
+      if (!inInput && (e.key === "Delete" || e.key === "Backspace") && selRef.current >= 0) {
+        e.preventDefault();
+        setCtxMenu(null);
+        const cur = histStack.current[histIdx.current];
+        if (cur.length > 3) {
+          const i = selRef.current;
+          const a = cur.filter((_, j) => j !== i);
+          pushHist(a); setSel(s => Math.min(s, a.length - 1)); setSelH(null);
+        }
+      }
+      if (!inInput && ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key) && selRef.current >= 0) {
+        e.preventDefault();
+        const dx = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+        const dy = e.key === "ArrowUp"   ? -1 : e.key === "ArrowDown"  ? 1 : 0;
+        const step = e.shiftKey ? 10 : 1;
+        const idx = selRef.current;
+        const lp = livePtsRef.current.map(p => ({ ...p }));
+        lp[idx] = { ...lp[idx], x: clamp(lp[idx].x + dx * step, 0, W), y: clamp(lp[idx].y + dy * step, 0, H) };
+        livePtsRef.current = lp;
+        paintLive(lp);
+        if (nudgeTimer) clearTimeout(nudgeTimer);
+        nudgeTimer = setTimeout(() => { pushHist(livePtsRef.current.map(p => ({ ...p }))); nudgeTimer = null; }, 400);
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") { spaceHeldRef.current = false; setSpaceHeld(false); }
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      if (nudgeTimer) clearTimeout(nudgeTimer);
+    };
+  }, [undoHist, redoHist, paintLive, pushHist, setSel, setSelH]);
 
   const dragAnchor = (e: React.MouseEvent, idx: number) => {
     if (e.button !== 0) return; e.stopPropagation(); e.preventDefault();
@@ -572,6 +656,17 @@ export default function ShapeBuilder() {
     pushHist(a); setSel(s => Math.min(s, a.length - 1)); setSelH(null);
   };
 
+  const dupPt = (i: number) => {
+    const p = pts[i];
+    const a = [...pts];
+    const np = mkPt(clamp(p.x + 16, 0, W), clamp(p.y + 16, 0, H), p.r, p.curve);
+    a.splice(i + 1, 0, np);
+    a[i + 1] = autoH(a, i + 1);
+    if (i >= 0) a[i] = autoH(a, i);
+    if (i + 2 < a.length) a[i + 2] = autoH(a, i + 2);
+    pushHist(a); setSel(i + 1); setSelH(null);
+  };
+
   const addCenter = () => {
     const cx = Math.round(pts.reduce((s, p) => s + p.x, 0) / pts.length);
     const cy = Math.round(pts.reduce((s, p) => s + p.y, 0) / pts.length);
@@ -593,16 +688,15 @@ export default function ShapeBuilder() {
 
   const rawCode = () => {
     const g: GradParams | undefined = fillType !== "solid" ? { fillType, stops: gradStops, gradAngle } : undefined;
-    if (codeMode === "svg")      return genSVG(pts, fill, op, sw, sc, g);
-    if (codeMode === "css")      return genCSS(pts, fill, op, sw, sc, g);
-    if (codeMode === "mask")     return genMask(pts, fill, op, g);
-    return genTW(pts, fill, g);
+    if (codeMode === "svg") return genSVG(pts, fill, op, sw, sc, g, outW, outH);
+    if (codeMode === "css") return genCSS(pts, fill, op, sw, sc, g, outW, outH);
+    return genTW(pts, fill, g, outW, outH);
   };
 
   const doCopy = () => {
-    navigator.clipboard.writeText(rawCode()).then(() => {
-      Toast.fire({ icon: "success", title: "Copied to clipboard!" });
-    });
+    navigator.clipboard.writeText(rawCode())
+      .then(() => Toast.fire({ icon: "success", title: "Copied to clipboard!" }))
+      .catch(() => Toast.fire({ icon: "error", title: "Failed to copy" }));
   };
 
   const pathD = buildPath(pts);
@@ -613,12 +707,50 @@ export default function ShapeBuilder() {
   // ─── Canvas ──────────────────────────────────────────────────
   const Canvas = () => (
     <div ref={areaRef} className="flex-1 bg-sb-light relative overflow-hidden flex items-center justify-center" style={{ minHeight: isMobile ? 280 : 0 }}>
-      <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(0,0,0,.032) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.032) 1px,transparent 1px)", backgroundSize: "20px 20px" }} />
+      {/* Grid */}
+      <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px)", backgroundSize: "20px 20px" }} />
+      {/* Aurora glow */}
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 45% 40% at 18% 22%, rgba(129,140,248,.13) 0%, transparent 65%), radial-gradient(ellipse 38% 48% at 82% 75%, rgba(244,114,182,.11) 0%, transparent 60%), radial-gradient(ellipse 55% 35% at 65% 12%, rgba(52,211,153,.07) 0%, transparent 60%)" }} />
+      {/* Decorative corner — top-right rings */}
+      <div className="absolute top-3 right-3 pointer-events-none" style={{ opacity: 0.18 }}>
+        <svg width="88" height="88" viewBox="0 0 88 88" fill="none">
+          <circle cx="44" cy="44" r="40" stroke="#818cf8" strokeWidth="0.8"/>
+          <circle cx="44" cy="44" r="28" stroke="#818cf8" strokeWidth="0.5"/>
+          <circle cx="44" cy="44" r="16" stroke="#f472b6" strokeWidth="0.6"/>
+          <line x1="4"  y1="44" x2="84" y2="44" stroke="#818cf8" strokeWidth="0.5"/>
+          <line x1="44" y1="4"  x2="44" y2="84" stroke="#818cf8" strokeWidth="0.5"/>
+        </svg>
+      </div>
+      {/* Decorative corner — bottom-left triangles */}
+      <div className="absolute bottom-14 left-3 pointer-events-none" style={{ opacity: 0.14 }}>
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <polygon points="32,4 60,52 4,52"  stroke="#f472b6" strokeWidth="0.9" fill="none"/>
+          <polygon points="32,16 50,48 14,48" stroke="#818cf8" strokeWidth="0.5" fill="none"/>
+          <polygon points="32,27 42,44 22,44" stroke="#f472b6" strokeWidth="0.4" fill="none"/>
+        </svg>
+      </div>
 
       <svg
         ref={svgRef} width={svgDim.w} height={svgDim.h} viewBox={`0 0 ${W} ${H}`}
         onClick={addClick}
-        style={{ cursor: "crosshair", position: "relative", zIndex: 1, filter: shFilter !== "none" ? shFilter : undefined, boxShadow: "0 6px 24px rgba(0,0,0,.12),0 2px 6px rgba(0,0,0,.08)", touchAction: "none" }}
+        onMouseDown={e => {
+          if (e.button !== 0 || !spaceHeldRef.current) return;
+          if ((e.target as Element).closest("[data-h]") || (e.target as Element).closest("[data-e]")) return;
+          e.preventDefault();
+          const startPts = livePtsRef.current.map(p => ({ ...p }));
+          const sx = e.clientX, sy = e.clientY, s = scaleRef.current;
+          const mv = (ev: MouseEvent) => {
+            const dx = Math.round((ev.clientX - sx) / s), dy = Math.round((ev.clientY - sy) / s);
+            const lp = startPts.map(p => ({ ...p, x: clamp(p.x + dx, 0, W), y: clamp(p.y + dy, 0, H) }));
+            livePtsRef.current = lp; paintLive(lp);
+          };
+          const up = () => {
+            pushHist(livePtsRef.current.map(p => ({ ...p })));
+            document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up);
+          };
+          document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
+        }}
+        style={{ cursor: preview ? "default" : spaceHeld ? "grab" : "crosshair", position: "relative", zIndex: 1, filter: shFilter !== "none" ? shFilter : undefined, boxShadow: "0 0 0 1px rgba(129,140,248,.15), 0 8px 40px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3)", touchAction: "none" }}
       >
         <defs>
           {fillType === "linear" && (
@@ -639,51 +771,52 @@ export default function ShapeBuilder() {
         </defs>
         <path id="live-path" d={pathD} fill={pathFill} fillOpacity={op} stroke={sw > 0 ? sc : "none"} strokeWidth={sw} />
 
-        {snapOn && (
+        {snapOn && !preview && (
           <g style={{ pointerEvents: "none" }}>
-            <line x1={W/2} y1={0} x2={W/2} y2={H} stroke="#0071e3" strokeWidth={0.7} strokeDasharray="4 4" opacity={0.15} />
-            <line x1={0} y1={H/2} x2={W} y2={H/2} stroke="#0071e3" strokeWidth={0.7} strokeDasharray="4 4" opacity={0.15} />
+            <line x1={W/2} y1={0} x2={W/2} y2={H} stroke="#818cf8" strokeWidth={0.7} strokeDasharray="4 4" opacity={0.15} />
+            <line x1={0} y1={H/2} x2={W} y2={H/2} stroke="#818cf8" strokeWidth={0.7} strokeDasharray="4 4" opacity={0.15} />
           </g>
         )}
 
         <g id="live-guides" style={{ pointerEvents: "none" }} />
 
-        {pts.map((p, i) => {
+        {!preview && pts.map((p, i) => {
           const nx = pts[(i + 1) % pts.length], mx = (p.x + nx.x) / 2, my = (p.y + nx.y) / 2;
           return (
             <g key={`e${i}`} data-e="1" onClick={ev => { ev.stopPropagation(); insertEdge(i); }} style={{ cursor: "pointer" }}
               onMouseEnter={ev => ev.currentTarget.querySelectorAll("circle,line").forEach((el) => ((el as HTMLElement).style.opacity = "1"))}
               onMouseLeave={ev => ev.currentTarget.querySelectorAll("circle,line").forEach((el) => ((el as HTMLElement).style.opacity = "0"))}>
-              <circle cx={mx} cy={my} r={12} fill="rgba(255,255,255,.9)" stroke="#0071e3" strokeWidth={1.5} opacity={0} style={{ transition: "opacity .15s" }} />
-              <line x1={mx-4} y1={my} x2={mx+4} y2={my} stroke="#0071e3" strokeWidth={2} strokeLinecap="round" opacity={0} style={{ transition: "opacity .15s" }} />
-              <line x1={mx} y1={my-4} x2={mx} y2={my+4} stroke="#0071e3" strokeWidth={2} strokeLinecap="round" opacity={0} style={{ transition: "opacity .15s" }} />
+              <circle cx={mx} cy={my} r={12} fill="rgba(255,255,255,.9)" stroke="#818cf8" strokeWidth={1.5} opacity={0} style={{ transition: "opacity .15s" }} />
+              <line x1={mx-4} y1={my} x2={mx+4} y2={my} stroke="#818cf8" strokeWidth={2} strokeLinecap="round" opacity={0} style={{ transition: "opacity .15s" }} />
+              <line x1={mx} y1={my-4} x2={mx} y2={my+4} stroke="#818cf8" strokeWidth={2} strokeLinecap="round" opacity={0} style={{ transition: "opacity .15s" }} />
             </g>
           );
         })}
 
         <g id="live-handles">
-          {pts.map((p, i) => p.curve && (
+          {!preview && pts.map((p, i) => p.curve && (
             <g key={`c${i}`}>
-              <line data-lo={i} x1={p.x} y1={p.y} x2={p.x+p.cx2} y2={p.y+p.cy2} stroke="rgba(0,113,227,.4)" strokeWidth={1.2} strokeDasharray="3 2" />
+              <line data-lo={i} x1={p.x} y1={p.y} x2={p.x+p.cx2} y2={p.y+p.cy2} stroke="rgba(129,140,248,.4)" strokeWidth={1.2} strokeDasharray="3 2" />
               <rect data-co={i} x={p.x+p.cx2-5} y={p.y+p.cy2-5} width={10} height={10}
                 transform={`rotate(45,${p.x+p.cx2},${p.y+p.cy2})`}
-                fill={selH?.idx===i&&selH?.which==="out"?"#0071e3":"#fff"} stroke="#0071e3" strokeWidth={1.5}
+                fill={selH?.idx===i&&selH?.which==="out"?"#818cf8":"#fff"} stroke="#818cf8" strokeWidth={1.5}
                 data-h="1" style={{ cursor: "grab" }} onMouseDown={ev => dragCtrl(ev, i, "out")} />
-              <line data-li={i} x1={p.x} y1={p.y} x2={p.x+p.cx1} y2={p.y+p.cy1} stroke="rgba(0,113,227,.4)" strokeWidth={1.2} strokeDasharray="3 2" />
+              <line data-li={i} x1={p.x} y1={p.y} x2={p.x+p.cx1} y2={p.y+p.cy1} stroke="rgba(129,140,248,.4)" strokeWidth={1.2} strokeDasharray="3 2" />
               <rect data-ci={i} x={p.x+p.cx1-5} y={p.y+p.cy1-5} width={10} height={10}
                 transform={`rotate(45,${p.x+p.cx1},${p.y+p.cy1})`}
-                fill={selH?.idx===i&&selH?.which==="in"?"#0071e3":"#fff"} stroke="#0071e3" strokeWidth={1.5}
+                fill={selH?.idx===i&&selH?.which==="in"?"#818cf8":"#fff"} stroke="#818cf8" strokeWidth={1.5}
                 data-h="1" style={{ cursor: "grab" }} onMouseDown={ev => dragCtrl(ev, i, "in")} />
             </g>
           ))}
-          {pts.map((p, i) => (
+          {!preview && pts.map((p, i) => (
             <g key={`a${i}`} data-ai={i} data-h="1"
               onMouseDown={ev => dragAnchor(ev, i)}
               onDoubleClick={ev => { ev.stopPropagation(); toggleCurve(i); }}
               onClick={ev => { ev.stopPropagation(); setSel(i); setSelH(null); }}
+              onContextMenu={ev => { ev.preventDefault(); ev.stopPropagation(); setCtxMenu({ x: ev.clientX, y: ev.clientY, idx: i }); setSel(i); }}
               style={{ cursor: "grab" }}>
-              <circle className="ah-outer" cx={p.x} cy={p.y} r={9} fill={sel===i?"#0071e3":"#fff"} stroke="#0071e3" strokeWidth={2} style={{ filter: "drop-shadow(0 1px 4px rgba(0,0,0,.18))" }} />
-              <circle className="ah-inner" cx={p.x} cy={p.y} r={3.5} fill={sel===i?"#fff":"#0071e3"} />
+              <circle className="ah-outer" cx={p.x} cy={p.y} r={9} fill={sel===i?"#818cf8":"#fff"} stroke="#818cf8" strokeWidth={2} style={{ filter: "drop-shadow(0 1px 4px rgba(0,0,0,.18))" }} />
+              <circle className="ah-inner" cx={p.x} cy={p.y} r={3.5} fill={sel===i?"#fff":"#818cf8"} />
               {(p.curve||p.r>0) && <circle cx={p.x} cy={p.y} r={2.5} fill="#ff9500" />}
               <text x={p.x+12} y={p.y-10} fontSize={9} fill="#aeaeb2" fontFamily="monospace">{i+1}</text>
             </g>
@@ -693,9 +826,9 @@ export default function ShapeBuilder() {
 
       <div id="guide-label" className="hidden absolute top-3 left-1/2 -translate-x-1/2 bg-sb-blue/90 text-white text-[10px] font-mono px-[10px] py-[3px] rounded-full pointer-events-none whitespace-nowrap" />
 
-      {!isMobile && (
-        <div className="absolute bottom-[14px] left-1/2 -translate-x-1/2 bg-white/88 backdrop-blur-lg border border-black/[.1] rounded-full px-[14px] py-1 text-[11px] text-sb-mid whitespace-nowrap pointer-events-none">
-          Click to add · Drag to move · Double-click to toggle curve
+      {!isMobile && !preview && (
+        <div className="absolute bottom-[14px] left-1/2 -translate-x-1/2 bg-[#0e0e1a]/80 backdrop-blur-lg border border-white/[.1] rounded-full px-[14px] py-1 text-[11px] text-sb-mid whitespace-nowrap pointer-events-none">
+          {spaceHeld ? "Release Space to exit move mode" : "Click to add · Drag point · Double-click to curve · Hold Space to move shape · Right-click point for menu"}
         </div>
       )}
     </div>
@@ -710,9 +843,9 @@ export default function ShapeBuilder() {
           {PRESETS.map((p, i) => (
             <div key={i} onClick={() => applyPreset(i)}
               className={cn("aspect-square rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer p-1 transition-all duration-[140ms] border-[1.5px]",
-                activeP === i ? "bg-sb-blue/10 border-sb-blue" : "bg-sb-light border-transparent")}>
+                activeP === i ? "bg-sb-blue/20 border-sb-blue" : "bg-white/[.04] border-white/[.06]")}>
               <svg viewBox="0 0 400 400" width={28} height={28}>
-                <path d={"M " + p.pts.map(([x, y]) => `${x},${y}`).join(" L ") + " Z"} fill={activeP === i ? "#0071e3" : "#636366"} />
+                <path d={"M " + p.pts.map(([x, y]) => `${x},${y}`).join(" L ") + " Z"} fill={activeP === i ? "#818cf8" : "#94a3b8"} />
               </svg>
               <span className={cn("text-[9px] font-semibold", activeP === i ? "text-sb-blue" : "text-sb-mid")}>{p.name}</span>
             </div>
@@ -729,9 +862,9 @@ export default function ShapeBuilder() {
           {selPt && (
             <>
               <div className="text-[10px] text-sb-muted mb-[6px] -mt-1">Point {sel + 1} only</div>
-              <Slider label="This corner" value={selPt.r || 0} min={0} max={100} unit="px"
-                onChange={r => { const a = pts.map(p => ({ ...p })); a[sel] = { ...a[sel], r }; svgRef.current?.querySelector("#live-path")?.setAttribute("d", buildPath(a)); }}
-                onCommit={r => setSelRadius(r)} />
+              <Slider label="This corner" value={liveSelR} min={0} max={100} unit="px"
+                onChange={r => { setLiveSelR(r); const a = pts.map(p => ({ ...p })); a[sel] = { ...a[sel], r }; svgRef.current?.querySelector("#live-path")?.setAttribute("d", buildPath(a)); }}
+                onCommit={r => { setLiveSelR(r); setSelRadius(r); }} />
             </>
           )}
           <div className="text-[10px] text-sb-muted">Orange dot = rounded · Double-click point to bezier</div>
@@ -741,71 +874,131 @@ export default function ShapeBuilder() {
       <Sec>
         <SecTitle>Fill</SecTitle>
 
-        {/* Type tabs */}
-        <div className="flex gap-[4px] mb-[10px] flex-wrap">
-          {(["solid","linear","radial","metallic"] as FillType[]).map(t => (
-            <button key={t} onClick={() => setFillType(t)}
-              className={cn("h-[22px] px-[8px] rounded-full text-[10px] font-medium cursor-pointer border transition-all duration-[120ms]",
-                fillType === t ? "bg-sb-blue text-white border-sb-blue" : "bg-transparent text-sb-mid border-black/[.15]")}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
+        {/* Type tabs — visual gradient previews */}
+        <div className="grid grid-cols-4 gap-[5px] mb-3">
+          {(["solid","linear","radial","metallic"] as FillType[]).map(t => {
+            const prev =
+              t === "solid"    ? fill :
+              t === "linear"   ? `linear-gradient(90deg, ${gradStops[0]?.color}, ${gradStops[gradStops.length-1]?.color})` :
+              t === "radial"   ? `radial-gradient(circle, ${gradStops[0]?.color} 0%, ${gradStops[gradStops.length-1]?.color} 100%)` :
+              gradCSSValue(METALLIC_PRESETS[1].stops, "metallic", 135);
+            const active = fillType === t;
+            return (
+              <button key={t} onClick={() => setFillType(t)}
+                className={cn("relative h-[48px] rounded-xl cursor-pointer border-[1.5px] transition-all duration-[150ms] overflow-hidden flex flex-col justify-end pb-[5px]",
+                  active ? "border-sb-blue shadow-[0_0_12px_rgba(129,140,248,.35)]" : "border-white/[.08] hover:border-white/[.2]")}>
+                <div className="absolute inset-0" style={{ background: prev }} />
+                <div className="absolute inset-0" style={{ background: active ? "rgba(0,0,0,.25)" : "rgba(0,0,0,.45)" }} />
+                <span className="relative text-[8px] font-bold uppercase tracking-widest text-white text-center w-full">{t}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {fillType === "solid" && <ColorRow color={fill} onChange={setFill} />}
+        {/* Solid: large clickable swatch */}
+        {fillType === "solid" && (
+          <div className="mb-2">
+            <div className="relative h-[52px] rounded-xl border border-white/[.08] mb-[7px] overflow-hidden cursor-pointer group transition-colors hover:border-white/[.2]"
+              style={{ background: fill }}>
+              <input type="color" value={fill} onChange={e => setFill(e.target.value)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-white/90 text-[10px] font-semibold drop-shadow">Click to change</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 px-[2px]">
+              <div className="w-5 h-5 rounded-md border border-white/[.15] overflow-hidden shrink-0">
+                <input type="color" value={fill} onChange={e => setFill(e.target.value)} className="w-full h-full border-none cursor-pointer" />
+              </div>
+              <span className="font-mono text-[11px] text-sb-mid">{fill.toUpperCase()}</span>
+            </div>
+          </div>
+        )}
 
         {fillType !== "solid" && (<>
           {/* Metallic quick-start presets */}
           {fillType === "metallic" && (
-            <div className="grid grid-cols-4 gap-[4px] mb-[10px]">
+            <div className="grid grid-cols-4 gap-[4px] mb-3">
               {METALLIC_PRESETS.map((m, i) => (
                 <button key={i} title={m.name}
                   onClick={() => setGradStops(m.stops.map(s => ({ ...s })))}
-                  className="h-[22px] rounded-md cursor-pointer text-[8px] font-bold text-white border border-black/[.12] transition-all hover:scale-105"
-                  style={{ background: gradCSSValue(m.stops, "metallic", 135), textShadow: "0 1px 2px rgba(0,0,0,.55)" }}>
+                  className="h-[26px] rounded-lg cursor-pointer text-[8px] font-bold text-white border border-white/[.1] transition-all hover:scale-105 hover:border-white/[.3]"
+                  style={{ background: gradCSSValue(m.stops, "metallic", 135), textShadow: "0 1px 2px rgba(0,0,0,.6)" }}>
                   {m.name}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Live gradient preview */}
-          <div className="h-[26px] rounded-[8px] mb-[10px] border border-black/[.08]"
-            style={{ background: gradCSSValue(gradStops, fillType, gradAngle) }} />
-
-          {/* Stop rows */}
-          {gradStops.map((stop, i) => (
-            <div key={i} className="flex items-center gap-[5px] mb-[7px]">
-              <div className="w-[22px] h-[22px] rounded-[5px] border-[1.5px] border-black/[.15] overflow-hidden shrink-0">
-                <input type="color" value={stop.color}
-                  onChange={e => setGradStops(ss => ss.map((s, j) => j === i ? { ...s, color: e.target.value } : s))}
-                  className="w-full h-full border-none cursor-pointer" />
+          {/* Interactive gradient bar — click to add stop, drag handle to reposition */}
+          <div className="relative mb-3 select-none" style={{ height: 58 }}>
+            <div
+              className="absolute rounded-xl border border-white/[.08]"
+              style={{ top: 0, left: 8, right: 8, height: 36, background: gradCSSValue(gradStops, fillType, gradAngle), cursor: gradStops.length < 6 ? "crosshair" : "default" }}
+              onClick={e => {
+                if (gradStops.length >= 6) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pos = Math.round(Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100)));
+                const sorted = [...gradStops].sort((a, b) => a.pos - b.pos);
+                const L = sorted.filter(s => s.pos <= pos).pop() ?? sorted[0];
+                const R = sorted.find(s => s.pos > pos) ?? sorted[sorted.length - 1];
+                let color = L.color;
+                if (L !== R && R.pos > L.pos) {
+                  const t = (pos - L.pos) / (R.pos - L.pos);
+                  const hx = (h: string) => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+                  const lc = hx(L.color), rc = hx(R.color);
+                  const lp = (a: number, b: number) => Math.round(a + (b - a) * t);
+                  color = "#" + [lp(lc[0],rc[0]), lp(lc[1],rc[1]), lp(lc[2],rc[2])].map(v => v.toString(16).padStart(2,"0")).join("");
+                }
+                setGradStops(ss => [...ss, { color, pos }]);
+              }} />
+            {/* Draggable stop handles */}
+            {gradStops.map((stop, i) => (
+              <div key={i}
+                className="absolute flex flex-col items-center"
+                style={{ bottom: 0, left: `calc(8px + (100% - 16px) * ${stop.pos / 100})`, transform: "translateX(-50%)", cursor: "ew-resize", zIndex: 2 }}
+                onMouseDown={e => {
+                  e.preventDefault(); e.stopPropagation();
+                  const container = e.currentTarget.parentElement!;
+                  const mv = (ev: MouseEvent) => {
+                    const rect = container.getBoundingClientRect();
+                    const pos = Math.round(Math.max(0, Math.min(100, (ev.clientX - rect.left - 8) / (rect.width - 16) * 100)));
+                    setGradStops(ss => ss.map((s, j) => j === i ? { ...s, pos } : s));
+                  };
+                  const up = () => { document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
+                  document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
+                }}>
+                <div className="w-px h-[8px] bg-white/40" />
+                <div className="w-[16px] h-[16px] rounded-full border-2 border-white shadow-[0_2px_8px_rgba(0,0,0,.65)]"
+                  style={{ background: stop.color }} />
               </div>
-              <input type="range" min={0} max={100} value={stop.pos}
-                onChange={e => setGradStops(ss => ss.map((s, j) => j === i ? { ...s, pos: +e.target.value } : s))}
-                className="flex-1 cursor-ew-resize" />
-              <span className="text-[9px] font-mono text-sb-muted w-[26px] text-right shrink-0">{stop.pos}%</span>
-              {gradStops.length > 2 && (
-                <button onClick={() => setGradStops(ss => ss.filter((_, j) => j !== i))}
-                  className="w-[14px] h-[14px] flex items-center justify-center text-sb-muted text-sm cursor-pointer border-none bg-transparent shrink-0 hover:text-sb-red leading-none">×</button>
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
+
+          {/* Stop rows — color + position number input */}
+          <div className="flex flex-col gap-[4px] mb-2">
+            {gradStops.map((stop, i) => (
+              <div key={i} className="flex items-center gap-[6px] bg-white/[.03] rounded-lg px-[8px] py-[5px]">
+                <div className="w-[20px] h-[20px] rounded-md border border-white/[.12] overflow-hidden shrink-0">
+                  <input type="color" value={stop.color}
+                    onChange={e => setGradStops(ss => ss.map((s, j) => j === i ? { ...s, color: e.target.value } : s))}
+                    className="w-full h-full border-none cursor-pointer" />
+                </div>
+                <span className="text-[9px] font-mono text-sb-muted flex-1 truncate">{stop.color.toUpperCase()}</span>
+                <input type="number" value={stop.pos} min={0} max={100}
+                  onChange={e => setGradStops(ss => ss.map((s, j) => j === i ? { ...s, pos: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) } : s))}
+                  className="w-[34px] h-[18px] rounded border border-white/[.12] bg-white/[.05] text-[9px] font-mono text-center text-sb-blue outline-none focus:border-sb-blue/60 px-0.5" />
+                <span className="text-[9px] text-sb-muted">%</span>
+                {gradStops.length > 2 && (
+                  <button onClick={() => setGradStops(ss => ss.filter((_, j) => j !== i))}
+                    className="w-[14px] h-[14px] flex items-center justify-center text-sb-muted cursor-pointer border-none bg-transparent shrink-0 hover:text-sb-red text-[14px] leading-none">×</button>
+                )}
+              </div>
+            ))}
+          </div>
 
           {gradStops.length < 6 && (
-            <button onClick={() => {
-              const sorted = [...gradStops].sort((a, b) => a.pos - b.pos);
-              let maxGap = -1, insertAt = 0;
-              for (let k = 0; k < sorted.length - 1; k++) {
-                const gap = sorted[k+1].pos - sorted[k].pos;
-                if (gap > maxGap) { maxGap = gap; insertAt = k; }
-              }
-              const bef = sorted[insertAt], aft = sorted[insertAt + 1];
-              setGradStops(ss => [...ss, { color: bef.color, pos: Math.round((bef.pos + aft.pos) / 2) }]);
-            }}
-              className="text-[10px] text-sb-blue cursor-pointer bg-transparent border-none mb-[6px] hover:underline w-full text-left">
-              + Add stop
-            </button>
+            <p className="text-[9px] text-sb-muted mb-2">Click the gradient bar to add a stop</p>
           )}
 
           {(fillType === "linear" || fillType === "metallic") && (
@@ -836,19 +1029,26 @@ export default function ShapeBuilder() {
 
       <Sec>
         <SecTitle>Transform</SecTitle>
-        <Slider label="Rotate" value={rotate} min={-180} max={180} unit="°" onChange={applyRotate} onCommit={applyRotate} />
+        <Slider label="Rotate" value={rotate} min={-180} max={180} unit="°" onStart={startRotate} onChange={liveRotate} onCommit={commitRotate} />
         <div className="flex gap-[6px]">
-          <button onClick={doFlipH} className={cn("flex-1 h-8 rounded-lg border border-black/[.12] cursor-pointer text-[11px] font-medium flex items-center justify-center gap-[5px] transition-all duration-[140ms]", flipH ? "bg-sb-blue/10 text-sb-blue" : "bg-sb-light text-sb-mid")}>
+          <button onClick={doFlipH} className={cn("flex-1 h-8 rounded-lg border border-white/[.12] cursor-pointer text-[11px] font-medium flex items-center justify-center gap-[5px] transition-all duration-[140ms]", flipH ? "bg-sb-blue/20 text-sb-blue" : "bg-white/[.06] text-sb-mid")}>
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 3v14M4 6l3 4-3 4M16 6l-3 4 3 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Flip H
           </button>
-          <button onClick={doFlipV} className={cn("flex-1 h-8 rounded-lg border border-black/[.12] cursor-pointer text-[11px] font-medium flex items-center justify-center gap-[5px] transition-all duration-[140ms]", flipV ? "bg-sb-blue/10 text-sb-blue" : "bg-sb-light text-sb-mid")}>
+          <button onClick={doFlipV} className={cn("flex-1 h-8 rounded-lg border border-white/[.12] cursor-pointer text-[11px] font-medium flex items-center justify-center gap-[5px] transition-all duration-[140ms]", flipV ? "bg-sb-blue/20 text-sb-blue" : "bg-white/[.06] text-sb-mid")}>
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M3 10h14M6 4l4 3 4-3M6 16l4-3 4 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Flip V
           </button>
         </div>
         {rotate !== 0 && (
-          <button onClick={() => { applyRotate(0); setRotate(0); }} className="mt-[6px] w-full h-[26px] rounded-md border border-black/[.1] bg-transparent cursor-pointer text-[10px] text-sb-muted">
+          <button onClick={() => {
+              if (rotateBaseRef.current) {
+                pushHist(rotateBaseRef.current.map(p => ({ ...p })));
+                rotateBaseRef.current = null;
+                rotateOriginRef.current = null;
+              }
+              setRotate(0);
+            }} className="mt-[6px] w-full h-[26px] rounded-md border border-white/[.1] bg-transparent cursor-pointer text-[10px] text-sb-muted">
             Reset rotation
           </button>
         )}
@@ -861,12 +1061,12 @@ export default function ShapeBuilder() {
         <div className="flex flex-col gap-[3px] max-h-[220px] overflow-y-auto">
           {pts.map((p, i) => (
             <div key={i} onClick={() => { setSel(i); setSelH(null); }}
-              className={cn("flex items-center gap-[5px] px-2 py-[5px] rounded-lg cursor-pointer transition-all duration-[120ms] border-[1.5px]", sel === i ? "bg-sb-blue/10 border-sb-blue" : "bg-sb-light border-transparent")}>
+              className={cn("flex items-center gap-[5px] px-2 py-[5px] rounded-lg cursor-pointer transition-all duration-[120ms] border-[1.5px]", sel === i ? "bg-sb-blue/20 border-sb-blue" : "bg-white/[.04] border-white/[.06]")}>
               <div className={cn("w-[7px] h-[7px] rounded-full shrink-0", (p.curve || p.r > 0) ? "bg-sb-orange" : "bg-sb-blue")} />
               <span className="text-[11px] font-medium flex-1">P{i + 1}</span>
               <span className="text-[9px] font-mono text-sb-muted">{p.x},{p.y}</span>
               {!curves && p.r > 0 && <span className="text-[9px] font-mono text-sb-orange">r{p.r}</span>}
-              <button onClick={e => { e.stopPropagation(); toggleCurve(i); }} className={cn("w-5 h-4 rounded border border-black/[.12] bg-transparent cursor-pointer text-[9px]", p.curve ? "text-sb-orange" : "text-sb-mid")}>
+              <button onClick={e => { e.stopPropagation(); toggleCurve(i); }} className={cn("w-5 h-4 rounded border border-white/[.12] bg-transparent cursor-pointer text-[9px]", p.curve ? "text-sb-orange" : "text-sb-mid")}>
                 {p.curve ? "~" : "—"}
               </button>
               <button onClick={e => { e.stopPropagation(); delPt(i); }} className="w-[18px] h-[18px] rounded-full border-none bg-transparent cursor-pointer text-sb-muted text-sm flex items-center justify-center">×</button>
@@ -880,28 +1080,43 @@ export default function ShapeBuilder() {
   // ─── Code panel ──────────────────────────────────────────────
   const CODE_TABS: { mode: CodeMode; label: string }[] = [
     { mode: "svg", label: "SVG" }, { mode: "css", label: "clip-path" },
-    { mode: "mask", label: "CSS mask" }, { mode: "tailwind", label: "Tailwind" },
+    { mode: "tailwind", label: "Tailwind" },
   ];
 
   const CodePanel = () => (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="px-[14px] pt-3 pb-2 border-b border-black/[.07] shrink-0">
-        <div className="text-[13px] font-semibold mb-[10px]">Output Code</div>
+      <div className="px-[14px] pt-3 pb-2 border-b border-white/[.07] shrink-0">
+        <div className="flex items-center justify-between mb-[10px]">
+          <div className="text-[13px] font-semibold bg-gradient-to-r from-sb-blue to-sb-orange bg-clip-text text-transparent">Output Code</div>
+          <div className="flex items-center gap-[5px]">
+            <span className="text-[10px] text-sb-muted">W</span>
+            <input type="number" value={outW} min={1} max={9999}
+              onChange={e => setOutW(Math.max(1, parseInt(e.target.value) || 400))}
+              className="w-[52px] h-[22px] rounded-md border border-white/[.12] bg-white/[.05] text-[11px] font-mono text-center text-sb-mid outline-none focus:border-sb-blue/60 px-1" />
+            <span className="text-[10px] text-sb-muted">H</span>
+            <input type="number" value={outH} min={1} max={9999}
+              onChange={e => setOutH(Math.max(1, parseInt(e.target.value) || 400))}
+              className="w-[52px] h-[22px] rounded-md border border-white/[.12] bg-white/[.05] text-[11px] font-mono text-center text-sb-mid outline-none focus:border-sb-blue/60 px-1" />
+          </div>
+        </div>
         <div className="flex gap-1 flex-wrap">
           {CODE_TABS.map(({ mode, label }) => (
             <button key={mode} onClick={() => setCodeMode(mode)}
               className={cn("px-[10px] py-1 rounded-full text-[11px] font-medium cursor-pointer transition-all",
-                codeMode === mode ? "bg-sb-blue text-white border-none" : "bg-transparent text-sb-mid border-[1.5px] border-black/[.12]")}>
+                codeMode === mode ? "bg-sb-blue text-white border-none shadow-[0_0_10px_rgba(129,140,248,.4)]" : "bg-transparent text-sb-mid border-[1.5px] border-white/[.12]")}>
               {label}
             </button>
           ))}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
-        <pre className="bg-sb-dark rounded-xl p-[14px] text-[10.5px] leading-[1.8] text-[#d1d1d6] whitespace-pre-wrap break-all m-0">{rawCode()}</pre>
+        <div className="rounded-xl overflow-hidden" style={{ background: "#060609", boxShadow: "0 0 0 1px rgba(129,140,248,.12), 0 4px 20px rgba(0,0,0,.4)" }}>
+          <div className="h-[2px]" style={{ background: "linear-gradient(90deg, #818cf8, #f472b6, #34d399)" }} />
+          <pre className="p-[14px] text-[10.5px] leading-[1.8] text-[#c8cfe8] whitespace-pre-wrap break-all m-0">{rawCode()}</pre>
+        </div>
       </div>
-      <div className="p-[10px] px-3 border-t border-black/[.07] shrink-0">
-        <button onClick={doCopy} className="w-full h-[38px] rounded-xl bg-sb-blue hover:bg-[#0065cc] text-white border-none text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-[6px] transition-all duration-150">
+      <div className="p-[10px] px-3 border-t border-white/[.07] shrink-0">
+        <button onClick={doCopy} className="w-full h-[38px] rounded-xl bg-gradient-to-r from-sb-blue to-sb-orange text-white border-none text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-[6px] transition-all duration-150 hover:opacity-90" style={{ animation: "glow-pulse 2.8s ease-in-out infinite" }}>
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="2" stroke="white" strokeWidth="1.5" /><path d="M3 11V3a2 2 0 012-2h8" stroke="white" strokeWidth="1.5" strokeLinecap="round" /></svg>
           Copy Code
         </button>
@@ -919,11 +1134,12 @@ export default function ShapeBuilder() {
     <div className="font-sans bg-sb-light h-screen flex flex-col antialiased overflow-hidden">
 
       {/* Topbar */}
-      <div className="h-[50px] flex items-center px-3 gap-2 bg-white/[.92] backdrop-blur-xl border-b border-black/[.07] shrink-0 z-50">
-        <span className="font-bold text-[15px] tracking-[-0.4px] whitespace-nowrap">
-          Shape<span className="text-sb-blue">Builder</span>
+      <div className="h-[50px] flex items-center px-3 gap-2 bg-[#0e0e1a]/95 backdrop-blur-xl shrink-0 z-50 relative">
+        <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent 0%, #818cf8 30%, #f472b6 70%, transparent 100%)" }} />
+        <span className="font-bold text-[15px] tracking-[-0.4px] whitespace-nowrap text-white" style={{ filter: "drop-shadow(0 0 12px rgba(129,140,248,.55))" }}>
+          Shape<span className="bg-gradient-to-r from-sb-blue to-sb-orange bg-clip-text text-transparent">Builder</span>
         </span>
-        {!isMobile && <span className="w-px h-[18px] bg-black/[.12] shrink-0" />}
+        {!isMobile && <span className="w-px h-[18px] shrink-0" style={{ background: "linear-gradient(to bottom, #818cf8, #f472b6)" , opacity: 0.4 }} />}
         <div className="ml-auto flex gap-[5px] items-center">
           <Btn onClick={undoHist} disabled={!canUndo} title="Undo ⌘Z" className="!px-[9px]">
             <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M4 7h9a5 5 0 010 10H7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /><path d="M4 7l3-3M4 7l3 3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
@@ -941,26 +1157,60 @@ export default function ShapeBuilder() {
             <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M3 16 C3 16 6 4 10 10 S17 4 17 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
             {!isMobile && (curves ? "Curves ON" : "Curves")}
           </Btn>
-          <Btn onClick={() => applyPreset(activeP)} title="Reset shape">↺</Btn>
-          <Btn onClick={doCopy} active>
-            {!isMobile && "Copy"}
+          <Btn onClick={() => setPreview(v => !v)} active={preview} title="Preview (hide handles)">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><ellipse cx="10" cy="10" rx="8" ry="5" stroke="currentColor" strokeWidth="1.7"/><circle cx="10" cy="10" r="2.5" fill="currentColor"/></svg>
+            {!isMobile && "Preview"}
           </Btn>
+          <Btn onClick={() => applyPreset(activeP)} title="Reset shape">↺</Btn>
         </div>
       </div>
+
+      {/* Context menu */}
+      {ctxMenu !== null && (
+        <>
+          <div className="fixed inset-0 z-[99]" onClick={() => setCtxMenu(null)} onContextMenu={e => { e.preventDefault(); setCtxMenu(null); }} />
+          <div className="fixed z-[100] min-w-[152px] rounded-xl overflow-hidden border border-white/[.1]"
+            style={{ left: Math.min(ctxMenu.x, (winW || 800) - 168), top: ctxMenu.y, background: "linear-gradient(135deg, #0f0f22, #0a0a18)", boxShadow: "0 8px 32px rgba(0,0,0,.6), 0 0 0 1px rgba(129,140,248,.18)" }}>
+            <div className="px-3 py-[7px] text-[9px] uppercase tracking-widest text-sb-muted border-b border-white/[.07] flex items-center gap-[6px]">
+              <span className="inline-block w-[3px] h-[10px] rounded-full shrink-0" style={{ background: "linear-gradient(to bottom, #818cf8, #f472b6)" }} />
+              Point {ctxMenu.idx + 1}
+            </div>
+            <button onClick={() => { toggleCurve(ctxMenu.idx); setCtxMenu(null); }}
+              className="w-full text-left px-3 py-[9px] text-[12px] text-sb-mid hover:bg-white/[.06] cursor-pointer flex items-center gap-2 transition-colors">
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M3 16 C3 16 6 4 10 10 S17 4 17 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
+              {pts[ctxMenu.idx]?.curve ? "Set as corner" : "Set as curve"}
+            </button>
+            <button onClick={() => { dupPt(ctxMenu.idx); setCtxMenu(null); }}
+              className="w-full text-left px-3 py-[9px] text-[12px] text-sb-mid hover:bg-white/[.06] cursor-pointer flex items-center gap-2 transition-colors">
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><rect x="7" y="7" width="9" height="9" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M4 13V4a1 1 0 011-1h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              Duplicate
+            </button>
+            <button onClick={() => {
+                const cur = histStack.current[histIdx.current];
+                if (cur.length > 3) { const a = cur.filter((_, j) => j !== ctxMenu.idx); pushHist(a); setSel(s => Math.min(s, a.length - 1)); setSelH(null); }
+                setCtxMenu(null);
+              }}
+              className="w-full text-left px-3 py-[9px] text-[12px] text-sb-red hover:bg-sb-red/[.08] cursor-pointer flex items-center gap-2 transition-colors border-t border-white/[.05]">
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
+              Delete
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Layout */}
       {!isMobile ? (
         <div className={cn("grid flex-1 min-h-0", isTablet ? "grid-cols-[220px_1fr]" : "grid-cols-[220px_1fr_288px]")}>
-          <div className="bg-white border-r border-black/[.07] flex flex-col overflow-hidden">{PropsPanel()}</div>
+          <div className="border-r border-white/[.07] flex flex-col overflow-hidden" style={{ background: "linear-gradient(160deg, #0f0f22 0%, #0a0a16 100%)" }}>{PropsPanel()}</div>
           {Canvas()}
-          {!isTablet && <div className="bg-white border-l border-black/[.07] flex flex-col overflow-hidden">{CodePanel()}</div>}
+          {!isTablet && <div className="border-l border-white/[.07] flex flex-col overflow-hidden" style={{ background: "linear-gradient(200deg, #0a0a16 0%, #0f0f22 100%)" }}>{CodePanel()}</div>}
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-h-0">
           {panel === "canvas" && <div className="flex-1 flex flex-col">{Canvas()}</div>}
-          {panel === "props"  && <div className="flex-1 bg-white flex flex-col overflow-hidden">{PropsPanel()}</div>}
-          {panel === "code"   && <div className="flex-1 bg-white flex flex-col overflow-hidden">{CodePanel()}</div>}
-          <div className="h-14 bg-white/[.92] backdrop-blur-xl border-t border-black/[.07] flex shrink-0">
+          {panel === "props"  && <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "linear-gradient(160deg, #0f0f22 0%, #0a0a16 100%)" }}>{PropsPanel()}</div>}
+          {panel === "code"   && <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "linear-gradient(200deg, #0a0a16 0%, #0f0f22 100%)" }}>{CodePanel()}</div>}
+          <div className="h-14 bg-[#0e0e1a]/95 backdrop-blur-xl border-t border-white/[.07] flex shrink-0">
             {TABS.map(t => (
               <button key={t.id} onClick={() => setPanel(t.id)}
                 className={cn("flex-1 flex flex-col items-center justify-center gap-0.5 border-none bg-transparent cursor-pointer text-[10px] font-medium transition-colors duration-[140ms]", panel === t.id ? "text-sb-blue" : "text-sb-muted")}>
